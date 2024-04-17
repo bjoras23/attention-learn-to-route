@@ -31,7 +31,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", default='data', help="Create datasets in data_dir/problem (default 'data')")
     parser.add_argument("--name", type=str, required=True, help="Name to identify dataset")
     parser.add_argument("--problem", type=str, default='all',
-                        help="Problem, 'tsp', 'vrp', 'pctsp' or 'op_const', 'op_unif' or 'op_dist'"
+                        help="Problem, 'tsp', 'vrp'"
                              " or 'all' to generate all")
     parser.add_argument('--data_distribution', type=str, default='all',
                         help="Distributions to generate for problem, default 'all'.")
@@ -50,8 +50,6 @@ if __name__ == "__main__":
     distributions_per_problem = {
         'tsp': [None],
         'vrp': [None],
-        'pctsp': [None],
-        'op': ['const', 'unif', 'dist']
     }
     if opts.problem == 'all':
         problems = distributions_per_problem

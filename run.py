@@ -1,12 +1,12 @@
-#!/usr/bin/env python
-
 import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 import json
 import pprint as pp
 
 import torch
 import torch.optim as optim
-from tensorboard_logger import Logger as TbLogger
+from torch.utils.tensorboard import SummaryWriter as TbLogger
 
 from nets.critic_network import CriticNetwork
 from options import get_options
@@ -36,18 +36,11 @@ def run(opts):
         json.dump(vars(opts), f, indent=True)
 
     # Set the device
-    opts.device = torch.device("cuda:0" if opts.use_cuda else "cpu")
+    opts.device = torch.device("cuda" if opts.use_cuda else "cpu")
 
     # Figure out what's the problem
     problem = load_problem(opts.problem)
 
-    # Load data from load_path
-    load_data = {}
-    assert opts.load_path is None or opts.resume is None, "Only one of load path and resume can be given"
-    load_path = opts.load_path if opts.load_path is not None else opts.resume
-    if load_path is not None:
-        print('  [*] Loading data from {}'.format(load_path))
-        load_data = torch_load_cpu(load_path)
 
     # Initialize model
     model_class = {
@@ -68,12 +61,20 @@ def run(opts):
         shrink_size=opts.shrink_size
     ).to(opts.device)
 
+    # Parallelization on multiple devices
     if opts.use_cuda and torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
 
-    # Overwrite model parameters by parameters to load
-    model_ = get_inner_model(model)
-    model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})})
+    # Load data from load_path
+    load_data = {}
+    assert opts.load_path is None or opts.resume is None, "Only one of load path and resume can be given"
+    load_path = opts.load_path if opts.load_path is not None else opts.resume
+    if load_path is not None:
+        print('  [*] Loading data from {}'.format(load_path))
+        load_data = torch_load_cpu(load_path)
+        # Overwrite model parameters by parameters to load
+        model_ = get_inner_model(model)
+        model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})})
 
     # Initialize baseline
     if opts.baseline == 'exponential':

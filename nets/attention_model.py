@@ -62,8 +62,6 @@ class AttentionModel(nn.Module):
         self.temp = 1.0
         self.allow_partial = problem.NAME == 'sdvrp'
         self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp'
-        self.is_orienteering = problem.NAME == 'op'
-        self.is_pctsp = problem.NAME == 'pctsp'
 
         self.tanh_clipping = tanh_clipping
 
@@ -76,15 +74,10 @@ class AttentionModel(nn.Module):
         self.shrink_size = shrink_size
 
         # Problem specific context parameters (placeholder and step context dimension)
-        if self.is_vrp or self.is_orienteering or self.is_pctsp:
-            # Embedding of last node + remaining_capacity / remaining length / remaining prize to collect
+        if self.is_vrp:
+            # Embedding of last node + remaining_capacity
             step_context_dim = embedding_dim + 1
-
-            if self.is_pctsp:
-                node_dim = 4  # x, y, expected_prize, penalty
-            else:
-                node_dim = 3  # x, y, demand / prize
-
+            node_dim = 3    # coords + demand
             # Special embedding projection for depot node
             self.init_embed_depot = nn.Linear(2, embedding_dim)
             
@@ -137,7 +130,7 @@ class AttentionModel(nn.Module):
         _log_p, pi = self._inner(input, embeddings)
 
         cost, mask = self.problem.get_costs(input, pi)
-        # Log likelyhood is calculated within the model since returning it per action does not work well with
+        # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
         ll = self._calc_log_likelihood(_log_p, pi, mask)
         if return_pi:
@@ -200,14 +193,8 @@ class AttentionModel(nn.Module):
 
     def _init_embed(self, input):
 
-        if self.is_vrp or self.is_orienteering or self.is_pctsp:
-            if self.is_vrp:
-                features = ('demand', )
-            elif self.is_orienteering:
-                features = ('prize', )
-            else:
-                assert self.is_pctsp
-                features = ('deterministic_prize', 'penalty')
+        if self.is_vrp:
+            features = ('demand', )
             return torch.cat(
                 (
                     self.init_embed_depot(input['depot'])[:, None, :],
@@ -404,24 +391,6 @@ class AttentionModel(nn.Module):
                     ),
                     -1
                 )
-        elif self.is_orienteering or self.is_pctsp:
-            return torch.cat(
-                (
-                    torch.gather(
-                        embeddings,
-                        1,
-                        current_node.contiguous()
-                            .view(batch_size, num_steps, 1)
-                            .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1)),
-                    (
-                        state.get_remaining_length()[:, :, None]
-                        if self.is_orienteering
-                        else state.get_remaining_prize_to_collect()[:, :, None]
-                    )
-                ),
-                -1
-            )
         else:  # TSP
         
             if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not
