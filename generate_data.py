@@ -3,9 +3,6 @@ import os
 import numpy as np
 from utils.data_utils import check_extension, save_dataset
 
-# TODO 
-# Generate data with Time windows/Deadlines
-
 def generate_tsp_data(dataset_size, tsp_size):
     return np.random.uniform(size=(dataset_size, tsp_size, 2)).tolist()
 
@@ -24,6 +21,25 @@ def generate_vrp_data(dataset_size, vrp_size):
         np.full(dataset_size, CAPACITIES[vrp_size]).tolist()  # Capacity, same for whole dataset
     ))
 
+
+def generate_cvrptw_data(dataset_size, cvrptw_size):
+    CAPACITIES = {
+            10: 20.,
+            20: 30.,
+            50: 40.,
+            100: 50.
+        }
+    
+    arrival_t = np.sort(np.random.uniform(low=0, high=0.85, size=(dataset_size, cvrptw_size)), -1)
+    # TODO deadline fixed for now
+    return list(zip(
+        np.random.uniform(size=(dataset_size, 2)).tolist(),  # Depot location
+        np.random.uniform(size=(dataset_size, cvrptw_size, 2)).tolist(),  # Node locations
+        np.random.randint(1, 10, size=(dataset_size, cvrptw_size)).tolist(),  # Demand, uniform integer 1 ... 9
+        np.full(dataset_size, CAPACITIES[cvrptw_size]).tolist(),  # Capacity, same for whole dataset
+        arrival_t.tolist(),     # Time requests where made
+        np.clip(arrival_t + 0.45, 0.0, 1.0).tolist()    # Deadline of requests
+    ))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -50,6 +66,7 @@ if __name__ == "__main__":
     distributions_per_problem = {
         'tsp': [None],
         'vrp': [None],
+        'cvrptw': [None],
     }
     if opts.problem == 'all':
         problems = distributions_per_problem
@@ -84,6 +101,9 @@ if __name__ == "__main__":
                     dataset = generate_tsp_data(opts.dataset_size, graph_size)
                 elif problem == 'vrp':
                     dataset = generate_vrp_data(
+                        opts.dataset_size, graph_size)
+                elif problem == 'cvrptw':
+                    dataset = generate_cvrptw_data(
                         opts.dataset_size, graph_size)
                 else:
                     assert False, "Unknown problem: {}".format(problem)

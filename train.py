@@ -73,9 +73,13 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
         tb_logger.add_scalar('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
 
     # Generate new training data for each epoch
+    t=time.time()
     training_dataset = baseline.wrap_dataset(problem.make_dataset(
         size=opts.graph_size, num_samples=opts.epoch_size, distribution=opts.data_distribution))
+    print(f"training dataset {time.time() - t}")
+    t=time.time()
     training_dataloader = DataLoader(training_dataset, batch_size=opts.batch_size)
+    print(f"training dataloader {time.time() - t}")
 
 
         

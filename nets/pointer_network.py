@@ -307,7 +307,7 @@ class PointerNetwork(nn.Module):
         _log_p, pi = self._inner(embedded_inputs, eval_tours)
 
         cost, mask = self.problem.get_costs(inputs, pi)
-        # Log likelyhood is calculated within the model since returning it per action does not work well with
+        # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
         ll = self._calc_log_likelihood(_log_p, pi, mask)
         if return_pi:

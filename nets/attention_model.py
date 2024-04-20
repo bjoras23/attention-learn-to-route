@@ -61,7 +61,9 @@ class AttentionModel(nn.Module):
         self.decode_type = None
         self.temp = 1.0
         self.allow_partial = problem.NAME == 'sdvrp'
-        self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp'
+        # TODO maybe have to change this
+        self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp' or problem.NAME =="cvrptw"
+        self.is_tw = problem.NAME =="cvrptw"
 
         self.tanh_clipping = tanh_clipping
 
@@ -81,6 +83,8 @@ class AttentionModel(nn.Module):
             # Special embedding projection for depot node
             self.init_embed_depot = nn.Linear(2, embedding_dim)
             
+            if self.is_tw:
+                node_dim = 5
             if self.is_vrp and self.allow_partial:  # Need to include the demand if split delivery allowed
                 self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
         else:  # TSP
@@ -195,6 +199,9 @@ class AttentionModel(nn.Module):
 
         if self.is_vrp:
             features = ('demand', )
+            if self.is_tw:
+                features = ('demand', 'arrival_t', 'deadline', )
+            
             return torch.cat(
                 (
                     self.init_embed_depot(input['depot'])[:, None, :],
