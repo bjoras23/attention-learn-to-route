@@ -55,12 +55,10 @@ class CVRPTW(object):
 
     @staticmethod
     def make_dataset(*args, **kwargs):
-        # TODO
         return VRPTWDataset(*args, **kwargs)
 
     @staticmethod
     def make_state(*args, **kwargs):
-        # TODO
         return StateCVRPTW.initialize(*args, **kwargs)
 
     @staticmethod
@@ -84,7 +82,7 @@ class CVRPTW(object):
 
 
 def make_instance(args):
-    # TODO
+    # TODO 
     depot, loc, demand, capacity, *args = args
     grid_size = 1
     if len(args) > 0:
@@ -102,7 +100,6 @@ class VRPTWDataset(Dataset):
 
         self.data_set = []
         if filename is not None:
-            # TODO 
             assert os.path.splitext(filename)[1] == '.pkl'
 
             with open(filename, 'rb') as f:
@@ -120,7 +117,7 @@ class VRPTWDataset(Dataset):
             }
 
 
-            arrival_t = torch.FloatTensor(size).uniform_(0, 0.85).sort().values
+            arrival_t = torch.FloatTensor(num_samples, size).uniform_(0, 0.85).sort().values
             self.data = [
                 {
                     'loc': torch.FloatTensor(size, 2).uniform_(0, 1),
@@ -128,12 +125,12 @@ class VRPTWDataset(Dataset):
                     'demand': (torch.FloatTensor(size).uniform_(0, 9).int() + 1).float() / CAPACITIES[size],
                     'depot': torch.FloatTensor(2).uniform_(0, 1),
                     # 0.85 ~= 573/660
-                    'arrival_t': arrival_t,
+                    'arrival_t': arrival_t[i],
                     # TODO right now deadline is always 0.45 after arrival_t: 0.45 ~= 300/660
                     # maybe change to let different lead times
-                    'deadline': torch.clip(arrival_t + 0.45, max=1.0)
+                    'deadline': torch.clip(arrival_t[i] + 0.45, max=1.0)
                 }
-                for _ in range(num_samples)
+                for i in range(num_samples)
             ]
 
         self.size = len(self.data)

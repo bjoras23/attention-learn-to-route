@@ -19,7 +19,8 @@ def get_beam_search_results(beams, final_state):
     parents = [beam.parent for beam in beams[1:]]
 
     solutions = final_state.construct_solutions(backtrack(parents, actions))
-    return beam.score, solutions, final_state.get_final_cost()[:, 0], final_state.ids.view(-1), beam.batch_size
+    costs = final_state.get_final_costs()
+    return beam.score, solutions, costs, final_state.ids.view(-1), beam.batch_size
 
 
 def _beam_search(state, beam_size, propose_expansions=None,

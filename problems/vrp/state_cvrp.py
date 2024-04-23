@@ -76,7 +76,7 @@ class StateCVRP(NamedTuple):
             i=torch.zeros(1, dtype=torch.int64, device=loc.device)  # Vector with length num_steps
         )
 
-    def get_final_cost(self):
+    def get_final_costs(self):
 
         assert self.all_finished()
 

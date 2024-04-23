@@ -11,8 +11,8 @@ def get_options(args=None):
     # Data
     parser.add_argument('--problem', default='tsp', help="The problem to solve, default 'tsp'")
     parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
-    parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
-    parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')
+    parser.add_argument('--batch_size', type=int, default=1024, help='Number of instances per batch during training')
+    parser.add_argument('--epoch_size', type=int, default=256000, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=10000,
                         help='Number of instances used for reporting validation performance')
     parser.add_argument('--val_dataset', type=str, default=None, help='Dataset file to use for validation')
@@ -56,6 +56,8 @@ def get_options(args=None):
                              ' to save memory (default None means no shrinking)')
     parser.add_argument('--data_distribution', type=str, default=None,
                         help='Data distribution to use during training, defaults and options depend on problem.')
+    parser.add_argument('--pen_coef', type=int, default=10, help='Penalty coeficient for timewindows.')
+    
 
     # Misc
     parser.add_argument('--log_step', type=int, default=50, help='Log info every log_step steps')

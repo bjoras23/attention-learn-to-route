@@ -19,12 +19,15 @@ def get_inner_model(model):
 def validate(model, dataset, opts):
     # Validate
     print('Validating...')
-    cost = rollout(model, dataset, opts)
+    cost, pen, reward = rollout(model, dataset, opts)
     avg_cost = cost.mean()
-    print('Validation overall avg_cost: {} +- {}'.format(
-        avg_cost, torch.std(cost) / math.sqrt(len(cost))))
+    avg_pen = pen.mean()
+    avg_r = reward.mean()
+    print(f'Validation overall avg_cost: {avg_cost:.5} +- {torch.std(cost) / math.sqrt(len(cost)):.5}')
+    print(f'Validation overall avg_pen: {avg_pen:.5} +- {torch.std(pen) / math.sqrt(len(pen)):.5}')
+    print(f'Validation overall avg_reward: {avg_r:.5} +- {torch.std(reward) / math.sqrt(len(reward)):.5}')
 
-    return avg_cost
+    return avg_cost, avg_pen, avg_r
 
 
 def rollout(model, dataset, opts):
@@ -34,15 +37,14 @@ def rollout(model, dataset, opts):
 
     def eval_model_bat(batch):
         with torch.no_grad():
-            cost, _ = model(move_to(batch, opts.device))
-        return cost.data.cpu()
+            cost, pen, reward, _ = model(move_to(batch, opts.device))
+        return torch.stack((cost.data.cpu(), pen.data.cpu(), reward.data.cpu()),-1)
 
-    return torch.cat([
+    return torch.split(torch.cat([
         eval_model_bat(batch)
         for batch
         in tqdm(DataLoader(dataset, batch_size=opts.eval_batch_size), disable=opts.no_progress_bar)
-    ], 0)
-
+    ], 0), split_size_or_sections=1, dim=-1)
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
     """
@@ -87,7 +89,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     model.train()
     set_decode_type(model, "sampling")
     print("training")
-    for batch_id, batch in enumerate(tqdm(training_dataloader)):
+    for batch_id, batch in enumerate(tqdm(training_dataloader, disable=opts.no_progress_bar)):
         train_batch(
             model,
             optimizer,
@@ -118,10 +120,12 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
             os.path.join(opts.save_dir, 'epoch-{}.pt'.format(epoch))
         )
 
-    avg_reward = validate(model, val_dataset, opts)
+    avg_cost, avg_pen, avg_reward = validate(model, val_dataset, opts)
 
     if not opts.no_tensorboard:
-        tb_logger.add_scalar('val_avg_reward', avg_reward, step)
+        tb_logger.add_scalar('validation/val_avg_cost', avg_cost, step)
+        tb_logger.add_scalar('validation/val_avg_pen', avg_pen, step)
+        tb_logger.add_scalar('validation/val_avg_reward', avg_reward, step)
 
     baseline.epoch_callback(model, epoch)
 
@@ -140,18 +144,18 @@ def train_batch(
         tb_logger,
         opts
 ):
-    x, bl_val = baseline.unwrap_batch(batch)
+    x, bl_reward = baseline.unwrap_batch(batch)
     x = move_to(x, opts.device)
-    bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
+    bl_reward = move_to(bl_reward, opts.device) if bl_reward is not None else None
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(x)
+    cost, pen, reward, log_likelihood = model(x)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
-    bl_val, bl_loss = baseline.eval(x, cost) if bl_val is None else (bl_val, 0)
+    bl_reward, bl_loss = baseline.eval(x, reward) if bl_reward is None else (bl_reward, 0)
 
     # Calculate loss
-    reinforce_loss = ((cost - bl_val) * log_likelihood).mean()
+    reinforce_loss = ((reward - bl_reward) * log_likelihood).mean()
     loss = reinforce_loss + bl_loss
 
     # Perform backward pass and optimization step
@@ -163,5 +167,5 @@ def train_batch(
 
     # Logging
     if step % int(opts.log_step) == 0:
-        log_values(cost, grad_norms, epoch, batch_id, step,
+        log_values(cost, pen, reward, bl_reward, grad_norms, epoch, batch_id, step,
                    log_likelihood, reinforce_loss, bl_loss, tb_logger, opts)

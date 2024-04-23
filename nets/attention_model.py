@@ -52,7 +52,8 @@ class AttentionModel(nn.Module):
                  normalization='batch',
                  n_heads=8,
                  checkpoint_encoder=False,
-                 shrink_size=None):
+                 shrink_size=None,
+                 pen_coef=0):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -74,6 +75,7 @@ class AttentionModel(nn.Module):
         self.n_heads = n_heads
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
+        self.pen_coef = pen_coef
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp:
@@ -131,16 +133,23 @@ class AttentionModel(nn.Module):
         else:
             embeddings, _ = self.embedder(self._init_embed(input))
 
-        _log_p, pi = self._inner(input, embeddings)
+        _log_p, pi, state = self._inner(input, embeddings)
 
-        cost, mask = self.problem.get_costs(input, pi)
+        costs = state.get_final_costs()
+        pens = 0
+        if self.is_tw:
+            pens = state.get_final_pens()
+
+        rewards = costs + (pens*self.pen_coef)
+
         # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
-        ll = self._calc_log_likelihood(_log_p, pi, mask)
+        ll = self._calc_log_likelihood(_log_p, pi)
+        
         if return_pi:
-            return cost, ll, pi
+            return costs, pens, rewards, ll, pi
 
-        return cost, ll
+        return costs, pens, rewards, ll
 
     def beam_search(self, *args, **kwargs):
         return self.problem.beam_search(*args, **kwargs, model=self)
@@ -181,7 +190,7 @@ class AttentionModel(nn.Module):
 
         return flat_parent[feas_ind], flat_action[feas_ind], flat_score[feas_ind]
 
-    def _calc_log_likelihood(self, _log_p, a, mask):
+    def _calc_log_likelihood(self, _log_p, a, mask=None):
 
         # Get log_p corresponding to selected actions
         log_p = _log_p.gather(2, a.unsqueeze(-1)).squeeze(-1)
@@ -266,7 +275,7 @@ class AttentionModel(nn.Module):
             i += 1
 
         # Collected lists, return Tensor
-        return torch.stack(outputs, 1), torch.stack(sequences, 1)
+        return torch.stack(outputs, 1), torch.stack(sequences, 1), state
 
     def sample_many(self, input, batch_rep=1, iter_rep=1):
         """

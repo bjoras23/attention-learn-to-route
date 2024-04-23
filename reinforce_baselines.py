@@ -168,7 +168,9 @@ class RolloutBaseline(Baseline):
         else:
             self.dataset = dataset
         print("Evaluating baseline model on evaluation dataset")
-        self.bl_vals = rollout(self.model, self.dataset, self.opts).cpu().numpy()
+        cost, pen, reward = rollout(self.model, self.dataset, self.opts)
+        # TODO maybe use reward for bl_vals
+        self.bl_vals = reward
         self.mean = self.bl_vals.mean()
         self.epoch = epoch
 
@@ -176,7 +178,7 @@ class RolloutBaseline(Baseline):
         print("Evaluating baseline on dataset...")
         # Need to convert baseline to 2D to prevent converting to double, see
         # https://discuss.pytorch.org/t/dataloader-gives-double-instead-of-float/717/3
-        return BaselineDataset(dataset, rollout(self.model, dataset, self.opts).view(-1, 1))
+        return BaselineDataset(dataset, rollout(self.model, dataset, self.opts)[-1])
 
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
@@ -184,7 +186,7 @@ class RolloutBaseline(Baseline):
     def eval(self, x, c):
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(x)
+            v, _, _ = self.model(x)
 
         # There is no loss
         return v, 0
@@ -196,15 +198,15 @@ class RolloutBaseline(Baseline):
         :param epoch: The current epoch
         """
         print("Evaluating candidate model on evaluation dataset")
-        candidate_vals = rollout(model, self.dataset, self.opts).cpu().numpy()
+        _, _, candidate_rewards = rollout(model, self.dataset, self.opts)
 
-        candidate_mean = candidate_vals.mean()
+        candidate_mean = candidate_rewards.mean()
 
         print("Epoch {} candidate mean {}, baseline epoch {} mean {}, difference {}".format(
             epoch, candidate_mean, self.epoch, self.mean, candidate_mean - self.mean))
         if candidate_mean - self.mean < 0:
             # Calc p value
-            t, p = ttest_rel(candidate_vals, self.bl_vals)
+            t, p = ttest_rel(candidate_rewards, self.bl_vals)
 
             p_val = p / 2  # one-sided
             assert t < 0, "T-statistic should be negative"

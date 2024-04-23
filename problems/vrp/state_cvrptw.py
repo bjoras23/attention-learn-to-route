@@ -61,7 +61,8 @@ class StateCVRPTW(NamedTuple):
         demand = input['demand']
         arrival_t = input['arrival_t']
         deadline = input['deadline']
-
+        # Add deadline for depot == 1, meaning its the day length
+        deadline = torch.cat((torch.ones(deadline.size()[:-1], device=loc.device)[:, None], deadline), -1)
         batch_size, n_loc, _ = loc.size()
         return StateCVRPTW(
             coords=torch.cat((depot[:, None, :], loc), -2),
@@ -87,11 +88,23 @@ class StateCVRPTW(NamedTuple):
             cur_t = torch.zeros(batch_size, 1, dtype=torch.float, device=loc.device)
         )
 
-    def get_final_cost(self):
-
+    def get_final_costs(self):
         assert self.all_finished()
 
-        return self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)
+        costs = self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)
+
+        return costs[:, 0]
+    
+    def get_final_pens(self):
+        assert self.all_finished()
+
+        # TODO Different kinds of penalties
+        # one where its just the total sum, another including percentage of delays etc.
+        
+        # penalty for time constraints being broken
+        delays = torch.clip(self.release_t - self.deadline, min=0)
+        perc_delayed= torch.sum(delays > 0, dim=1) / delays.size()[-1]
+        return delays.sum(-1)
 
     def update(self, selected):
 

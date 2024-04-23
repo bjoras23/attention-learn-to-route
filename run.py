@@ -58,7 +58,8 @@ def run(opts):
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_encoder,
-        shrink_size=opts.shrink_size
+        shrink_size=opts.shrink_size,
+        pen_coef=opts.pen_coef
     ).to(opts.device)
 
     # Parallelization on multiple devices
@@ -155,6 +156,13 @@ def run(opts):
     if opts.eval_only:
         validate(model, val_dataset, opts)
     else:
+        avg_cost, avg_pen, avg_reward = validate(model, val_dataset, opts)
+        step = opts.epoch_start * (opts.epoch_size // opts.batch_size)
+        if not opts.no_tensorboard:
+            tb_logger.add_scalar('validation/val_avg_cost', avg_cost, step)
+            tb_logger.add_scalar('validation/val_avg_pen', avg_pen, step)
+            tb_logger.add_scalar('validation/val_avg_reward', avg_reward, step)
+
         for epoch in range(opts.epoch_start, opts.epoch_start + opts.n_epochs):
             train_epoch(
                 model,
