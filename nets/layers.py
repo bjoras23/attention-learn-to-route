@@ -211,28 +211,30 @@ class GATv2MHA(nn.Module):
         assert embed_dim%n_heads==0, f"{embed_dim=}, {n_heads=}"
     
     
-        # if self.shared_linear:
-        #     # linear transformation then split into heads
-        #     self.Wl = nn.Linear(input_dim, embed_dim, bias=False)
-        # else:
-        #     # k heads linear transformation
-        #     self.Wl = nn.ModuleList([nn.Linear(input_dim, self.head_dim, bias=False) for _ in range(n_heads)])
+        # k heads linear transformation
+        self.Wl = nn.Parameter(torch.Tensor(self.n_heads, self.input_dim, self.head_dim))
         
-        # if share_weights:
-        #     # linear transformation then split into heads
-        #     self.Wr = self.Wl
-        # elif self.shared_linear:
-        #     # k heads linear transformation
-        #     self.Wr = nn.Linear(input_dim, self.embed_dim, bias=False)
-        # else:
-        #     self.Wr = nn.ModuleList([nn.Linear(input_dim, self.head_dim, bias=False) for _ in range(n_heads)])
+        if share_weights:
+            # linear transformation then split into heads
+            self.Wr = self.Wl
+        else:
+            # k heads linear transformation
+            self.Wr = nn.Parameter(torch.Tensor(self.n_heads, self.input_dim, self.head_dim))
 
         
-        # self.Wak = nn.ModuleList([nn.Linear(self.head_dim, 1, bias=False) for _ in range(n_heads)])
-        # # TODO slope arg
-        # self.activation = nn.LeakyReLU(negative_slope=leakyReLu_slope)
-        # self.nonlinear = nn.ReLU()
-        self.gat = GATv2Conv(-1, self.head_dim, n_heads, add_self_loops=False)
+        self.Wak = nn.Parameter(torch.Tensor(self.n_heads, self.head_dim, 1))
+
+        # TODO slope arg
+        self.activation = nn.LeakyReLU(negative_slope=leakyReLu_slope)
+        self.nonlinear = nn.ReLU()
+        self.init_parameters()
+
+    def init_parameters(self):
+
+        for param in self.parameters():
+            stdv = 1. / math.sqrt(param.size(-1))
+            param.data.uniform_(-stdv, stdv)
+
 
     def forward(self, h, mask=None):
         """
@@ -245,11 +247,7 @@ class GATv2MHA(nn.Module):
         gᵏ = hWᵏ
         """
 
-        batch_size, graph_size, _ = h.size()
-        ids = torch.Tensor([i for i in range(graph_size)], device='cuda')
-        edge_index = torch.stack([ids.repeat_interleave(graph_size), ids.repeat(graph_size)]).to(int)
-        edge_index = edge_index.to(device="cuda")
-        return self.gat(h.view(-1, self.embed_dim), edge_index).view(batch_size, graph_size, self.embed_dim)
+        batch_size, graph_size, input_dim = h.size()
         # if self.shared_linear:
         #     # glᵢᵏ = hᵢWl; grⱼᵏ = hⱼWr 
         #     #(n_heads, batch_size, graph_size, head_dim)
@@ -261,37 +259,31 @@ class GATv2MHA(nn.Module):
         #     g_l = torch.stack([w(h) for w in self.Wl], dim=0)
         #     g_r = torch.stack([w(h) for w in self.Wl], dim=0)
 
-        # # auxiliary
-        # sizes = [1 for _ in range(g_l.dim())]
-        # sizes[-2] = graph_size
+        h = h.contiguous().view(-1, input_dim)
+        g_l = (h @ self.Wl).view(self.n_heads, batch_size, graph_size, self.head_dim)
+        g_r = (h @ self.Wr).view(self.n_heads, batch_size, graph_size, self.head_dim)
 
-        # # g_concat = [glᵢ+grⱼ] =  W[hᵢ|| hⱼ]
-        # g_concat = g_r.repeat_interleave(graph_size, dim=-2) + g_l.repeat(sizes)
-        # g_concat = g_concat.view(self.n_heads, batch_size, graph_size, graph_size, self.head_dim)
+        #eᵢⱼᵏ​ = (aᵏ)ᵀLeakyReLU(W[hᵢᵏ|| hⱼᵏ])
+        # (n_heads, batch_size, graph_size, graph_size)
+        e_ijk = self.activation(g_l.view(self.n_heads, batch_size, graph_size, 1, self.head_dim) + g_r.view(self.n_heads, batch_size, 1, graph_size, self.head_dim))
+        e_ijk = (e_ijk.contiguous().view(8, -1, self.head_dim) @ self.Wak).view(self.n_heads, batch_size, graph_size, graph_size)
 
-        # #eᵢⱼᵏ​ = (aᵏ)ᵀLeakyReLU(W[hᵢᵏ|| hⱼᵏ])
-        # # (n_heads, batch_size, graph_size, graph_size)
-        # e_ijk = self.activation(g_concat)
-        # e_ijk = torch.stack([w(e_ijk[i]) for i, w in enumerate(self.Wak)], dim=0).squeeze(-1)
+        # Optionally apply mask to prevent attention TODO check mask
+        if mask is not None:
+            mask = mask.view(1, batch_size, graph_size, graph_size).expand_as(e_ijk)
+            e_ijk[mask] = -np.inf
 
-        # # Optionally apply mask to prevent attention TODO check mask
-        # if mask is not None:
-        #     mask = mask.view(1, batch_size, graph_size, graph_size).expand_as(e_ijk)
-        #     e_ijk[mask] = -np.inf
+        # αᵢⱼᵏ = SoftMaxⱼ(eᵢⱼᵏ​)
+        # (n_heads, batch_size, graph_size, graph_size)
+        attn = F.softmax(e_ijk, dim=-1)
 
-        # # αᵢⱼᵏ = SoftMaxⱼ(eᵢⱼᵏ​)
-        # # (n_heads, batch_size, graph_size, graph_size)
-        # attn = F.softmax(e_ijk, dim=-1)
+        # hᵢ′ᵏ​ = σ(∑αᵢⱼᵏ​grⱼᵏ​); σ = nonlinear function (e.g. ReLu)
+        # (batch_size, graph_size, n_heads, head_dim)
+        h_prime = self.nonlinear(torch.einsum('hbij,hbjf->bihf', attn, g_r))
 
-        # # hᵢ′ᵏ​ = σ(∑αᵢⱼᵏ​grⱼᵏ​); σ = nonlinear function (e.g. ReLu)
-        # # (batch_size, graph_size, n_heads, head_dim)
-        # h_prime = self.nonlinear(torch.einsum('hbij,hbjf->bihf', attn, g_r))
+        # TODO, average is often used for output layer
 
-        # # TODO, average is often used for output layer
-
-        # # hᵢ′​ = ∣∣​hᵢ′ᵏ
-        # # Concatenation of heads (batch_size, graph_size, embed_dim)
-        # h_prime = h_prime.reshape(batch_size, graph_size, self.n_heads*self.head_dim)
-
-        # return h_prime
+        # hᵢ′​ = ∣∣​hᵢ′ᵏ
+        # Concatenation of heads (batch_size, graph_size, embed_dim)
+        return h_prime.reshape(batch_size, graph_size, self.n_heads*self.head_dim)
     
