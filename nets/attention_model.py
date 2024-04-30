@@ -140,10 +140,10 @@ class AttentionModel(nn.Module):
         _log_p, pi, state = self._inner(input, embeddings)
 
         costs = state.get_final_costs()
-        pens = 0
         if self.is_tw:
             pens = state.get_final_pens()
-
+        else:
+            pens = torch.zeros_like(costs)
         rewards = costs + (pens*self.pen_coef)
 
         # Log likelihood is calculated within the model since returning it per action does not work well with
