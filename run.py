@@ -59,7 +59,8 @@ def run(opts):
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_encoder,
         shrink_size=opts.shrink_size,
-        pen_coef=opts.pen_coef
+        pen_coef=opts.pen_coef,
+        attention=opts.encoder_attn
     ).to(opts.device)
 
     # Parallelization on multiple devices

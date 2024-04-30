@@ -53,7 +53,8 @@ class AttentionModel(nn.Module):
                  n_heads=8,
                  checkpoint_encoder=False,
                  shrink_size=None,
-                 pen_coef=0):
+                 pen_coef=0,
+                 attention='transformer'):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -87,6 +88,8 @@ class AttentionModel(nn.Module):
             
             if self.is_tw:
                 node_dim = 5
+                # Embedding of last node + remaining_capacity + curr_time
+                step_context_dim = embedding_dim + 2
             if self.is_vrp and self.allow_partial:  # Need to include the demand if split delivery allowed
                 self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
         else:  # TSP
@@ -104,7 +107,8 @@ class AttentionModel(nn.Module):
             n_heads=n_heads,
             embed_dim=embedding_dim,
             n_layers=self.n_encode_layers,
-            normalization=normalization
+            normalization=normalization,
+            attention=attention
         )
 
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embedding_dim
@@ -367,7 +371,7 @@ class AttentionModel(nn.Module):
 
         return log_p, mask
 
-    def _get_parallel_step_context(self, embeddings, state, from_depot=False):
+    def _get_parallel_step_context(self, embeddings, state):
         """
         Returns the context per step, optionally for multiple steps at once (for efficient evaluation of the model)
         
@@ -382,31 +386,22 @@ class AttentionModel(nn.Module):
 
         if self.is_vrp:
             # Embedding of previous node + remaining capacity
-            if from_depot:
-                # 1st dimension is node idx, but we do not squeeze it since we want to insert step dimension
-                # i.e. we actually want embeddings[:, 0, :][:, None, :] which is equivalent
-                return torch.cat(
-                    (
-                        embeddings[:, 0:1, :].expand(batch_size, num_steps, embeddings.size(-1)),
-                        # used capacity is 0 after visiting depot
-                        self.problem.VEHICLE_CAPACITY - torch.zeros_like(state.used_capacity[:, :, None])
-                    ),
-                    -1
-                )
-            else:
-                return torch.cat(
-                    (
-                        torch.gather(
-                            embeddings,
-                            1,
-                            current_node.contiguous()
-                                .view(batch_size, num_steps, 1)
-                                .expand(batch_size, num_steps, embeddings.size(-1))
-                        ).view(batch_size, num_steps, embeddings.size(-1)),
-                        self.problem.VEHICLE_CAPACITY - state.used_capacity[:, :, None]
-                    ),
-                    -1
-                )
+            step_context = torch.cat(
+                (
+                    torch.gather(
+                        embeddings,
+                        1,
+                        current_node.contiguous()
+                            .view(batch_size, num_steps, 1)
+                            .expand(batch_size, num_steps, embeddings.size(-1))
+                    ).view(batch_size, num_steps, embeddings.size(-1)),
+                    self.problem.VEHICLE_CAPACITY - state.used_capacity[:, :, None]
+                ),
+                -1
+            )
+            if self.is_tw:
+                step_context = torch.cat([step_context, state.cur_t[:,None, :]], -1)
+            return step_context
         else:  # TSP
         
             if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not

@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch import nn
 import math
-
+import nets.layers as layers
 
 class SkipConnection(nn.Module):
 
@@ -14,7 +14,7 @@ class SkipConnection(nn.Module):
         return input + self.module(input)
 
 
-class MultiHeadAttention(nn.Module):
+class TransformerMHA(nn.Module):
     def __init__(
             self,
             n_heads,
@@ -23,7 +23,7 @@ class MultiHeadAttention(nn.Module):
             val_dim=None,
             key_dim=None
     ):
-        super(MultiHeadAttention, self).__init__()
+        super(TransformerMHA, self).__init__()
 
         if val_dim is None:
             val_dim = embed_dim // n_heads
@@ -159,13 +159,19 @@ class MultiHeadAttentionLayer(nn.Sequential):
             embed_dim,
             feed_forward_hidden=512,
             normalization='batch',
+            attention='transformer'
     ):
+        attention_layer = {
+            'transformer': TransformerMHA,
+            'GAT': layers.GATMHAEfficient,
+            'GATv2': layers.GATv2MHA
+        }[attention]
         super(MultiHeadAttentionLayer, self).__init__(
             SkipConnection(
-                MultiHeadAttention(
+                attention_layer(
                     n_heads,
                     input_dim=embed_dim,
-                    embed_dim=embed_dim
+                    embed_dim=embed_dim,
                 )
             ),
             Normalization(embed_dim, normalization),
@@ -188,7 +194,8 @@ class GraphAttentionEncoder(nn.Module):
             n_layers,
             node_dim=None,
             normalization='batch',
-            feed_forward_hidden=512
+            feed_forward_hidden=512,
+            attention='transformer'
     ):
         super(GraphAttentionEncoder, self).__init__()
 
@@ -196,7 +203,7 @@ class GraphAttentionEncoder(nn.Module):
         self.init_embed = nn.Linear(node_dim, embed_dim) if node_dim is not None else None
 
         self.layers = nn.Sequential(*(
-            MultiHeadAttentionLayer(n_heads, embed_dim, feed_forward_hidden, normalization)
+            MultiHeadAttentionLayer(n_heads, embed_dim, feed_forward_hidden, normalization, attention)
             for _ in range(n_layers)
         ))
 
