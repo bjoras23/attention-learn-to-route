@@ -66,9 +66,8 @@ class StateTSP(NamedTuple):
     def get_final_costs(self):
 
         assert self.all_finished()
-        # assert self.visited_.
 
-        return self.lengths + (self.loc[self.ids, self.first_a, :] - self.cur_coord).norm(p=2, dim=-1)
+        return (self.lengths + (self.loc[self.ids, self.first_a, :] - self.cur_coord).norm(p=2, dim=-1)).squeeze()
 
     def update(self, selected):
 

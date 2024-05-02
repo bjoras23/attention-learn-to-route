@@ -59,7 +59,7 @@ class StateSDVRP(NamedTuple):
 
         assert self.all_finished()
 
-        return self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)
+        return (self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)).squeeze()
 
     def update(self, selected):
 

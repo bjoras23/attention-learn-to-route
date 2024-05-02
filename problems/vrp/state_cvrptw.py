@@ -91,9 +91,7 @@ class StateCVRPTW(NamedTuple):
     def get_final_costs(self):
         assert self.all_finished()
 
-        costs = self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)
-
-        return costs[:, 0]
+        return (self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)).squeeze()
     
     def get_final_pens(self):
         assert self.all_finished()
