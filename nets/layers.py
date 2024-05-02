@@ -30,7 +30,7 @@ class GATMHAEfficient(nn.Module):
         
         self.Wal = nn.Parameter(torch.Tensor(self.n_heads, self.head_dim, 1))
         self.War = nn.Parameter(torch.Tensor(self.n_heads, self.head_dim, 1))
-´
+
         self.activation = nn.LeakyReLU(negative_slope=leakyReLu_slope)
         self.nonlinear = nn.ReLU()
         self.init_parameters()
