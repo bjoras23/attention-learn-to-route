@@ -81,12 +81,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     training_dataset = baseline.wrap_dataset(problem.make_dataset(
         size=opts.graph_size, num_samples=opts.epoch_size, distribution=opts.data_distribution))
     print(f"training dataset {time.time() - t}")
-    t=time.time()
     training_dataloader = DataLoader(training_dataset, batch_size=opts.batch_size)
-    print(f"training dataloader {time.time() - t}")
 
-
-        
     # Put model in train mode!
     model.train()
     set_decode_type(model, "sampling")

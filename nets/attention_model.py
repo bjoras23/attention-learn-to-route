@@ -124,7 +124,7 @@ class AttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False):
+    def forward(self, input, mask=None, return_pi=False, cur_t=0):
         """
         :param input: (batch_size, graph_size, node_dim) input node features or dictionary with multiple tensors
         :param return_pi: whether to return the output sequences, this is optional as it is not compatible with
@@ -135,9 +135,9 @@ class AttentionModel(nn.Module):
         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
             embeddings, _ = checkpoint(self.embedder, self._init_embed(input))
         else:
-            embeddings, _ = self.embedder(self._init_embed(input))
+            embeddings, _ = self.embedder(self._init_embed(input), mask=mask)
 
-        _log_p, pi, state = self._inner(input, embeddings)
+        _log_p, pi, state = self._inner(input, embeddings, mask=mask, cur_t=cur_t)
 
         costs = state.get_final_costs()
         if self.is_tw:
@@ -228,15 +228,13 @@ class AttentionModel(nn.Module):
         # TSP
         return self.init_embed(input)
 
-    def _inner(self, input, embeddings):
-
+    def _inner(self, input, embeddings, mask=None, cur_t=0):
         outputs = []
         sequences = []
-
-        state = self.problem.make_state(input)
+        state = self.problem.make_state(input, mask=mask, cur_t=cur_t)
 
         # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
-        fixed = self._precompute(embeddings)
+        fixed = self._precompute(embeddings, mask=mask)
 
         batch_size = state.ids.size(0)
 
@@ -317,10 +315,13 @@ class AttentionModel(nn.Module):
             assert False, "Unknown decode type"
         return selected
 
-    def _precompute(self, embeddings, num_steps=1):
+    def _precompute(self, embeddings, num_steps=1, mask=None):
 
         # The fixed context projection of the graph embedding is calculated only once for efficiency
-        graph_embed = embeddings.mean(1)
+        if mask is not None:
+            graph_embed = torch.sum(~mask.unsqueeze(-1)*embeddings, dim=-2) / torch.sum(~mask, dim=-1, keepdim=True)
+        else:
+            graph_embed = embeddings.mean(1)
         # fixed context = (batch_size, 1, embed_dim) to make broadcastable with parallel timesteps
         fixed_context = self.project_fixed_context(graph_embed)[:, None, :]
 

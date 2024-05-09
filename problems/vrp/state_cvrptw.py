@@ -32,7 +32,7 @@ class StateCVRPTW(NamedTuple):
             return self.visited_
         else:
             return mask_long2bool(self.visited_, n=self.demand.size(-1))
-
+   
     @property
     def dist(self):
         return (self.coords[:, :, None, :] - self.coords[:, None, :, :]).norm(p=2, dim=-1)
@@ -54,8 +54,7 @@ class StateCVRPTW(NamedTuple):
     #     return len(self.used_capacity)
 
     @staticmethod
-    def initialize(input, visited_dtype=torch.uint8):
-
+    def initialize(input, visited_dtype=torch.uint8, mask=None, cur_t=None):
         depot = input['depot']
         loc = input['loc']
         demand = input['demand']
@@ -64,6 +63,22 @@ class StateCVRPTW(NamedTuple):
         # Add deadline for depot == 1, meaning its the day length
         deadline = torch.cat((torch.ones(deadline.size()[:-1], device=loc.device)[:, None], deadline), -1)
         batch_size, n_loc, _ = loc.size()
+        
+        visited = (  # Visited as mask is easier to understand, as long more memory efficient
+                # Keep visited_ with depot so we can scatter efficiently
+                torch.zeros(
+                    batch_size, 1, n_loc + 1,
+                    dtype=torch.uint8, device=loc.device
+                )
+                if visited_dtype == torch.uint8
+                else torch.zeros(batch_size, 1, (n_loc + 63) // 64, dtype=torch.int64, device=loc.device)  # Ceil
+            )
+        if mask is not None:
+            visited = visited+mask.unsqueeze(1)
+
+        if cur_t is None:
+            cur_t = torch.zeros(batch_size, 1, dtype=torch.float, device=loc.device)
+
         return StateCVRPTW(
             coords=torch.cat((depot[:, None, :], loc), -2),
             demand=demand,
@@ -72,30 +87,18 @@ class StateCVRPTW(NamedTuple):
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],  # Add steps dimension
             prev_a=torch.zeros(batch_size, 1, dtype=torch.long, device=loc.device),
             used_capacity=demand.new_zeros(batch_size, 1),
-            visited_=(  # Visited as mask is easier to understand, as long more memory efficient
-                # Keep visited_ with depot so we can scatter efficiently
-                torch.zeros(
-                    batch_size, 1, n_loc + 1,
-                    dtype=torch.uint8, device=loc.device
-                )
-                if visited_dtype == torch.uint8
-                else torch.zeros(batch_size, 1, (n_loc + 63) // 64, dtype=torch.int64, device=loc.device)  # Ceil
-            ),
+            visited_=visited,
             release_t=torch.zeros(batch_size, n_loc+1, dtype=torch.float, device=loc.device),
             lengths=torch.zeros(batch_size, 1, device=loc.device),
             cur_coord=input['depot'][:, None, :],  # Add step dimension
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),  # Vector with length num_steps
-            cur_t = torch.zeros(batch_size, 1, dtype=torch.float, device=loc.device)
+            cur_t = cur_t
         )
 
     def get_final_costs(self):
-        assert self.all_finished()
-
         return (self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)).squeeze()
     
     def get_final_pens(self):
-        assert self.all_finished()
-
         # TODO Different kinds of penalties
         # one where its just the total sum, another including percentage of delays etc.
         
@@ -104,7 +107,7 @@ class StateCVRPTW(NamedTuple):
         perc_delayed= torch.sum(delays > 0, dim=1) / delays.size()[-1]
         return delays.sum(-1)
 
-    def update(self, selected):
+    def update(self, selected, one_route=False):
 
         assert self.i.size(0) == 1, "Can only update if state represents single step"
 
@@ -138,13 +141,16 @@ class StateCVRPTW(NamedTuple):
             # This works, will not set anything if prev_a -1 == -1 (depot)
             visited_ = mask_long_scatter(self.visited_, selected - 1)
 
+        # When we arrive at depot, set all visited to force finish
+        if one_route:
+            visited_[selected == 0] = 1
         return self._replace(
             prev_a=selected, used_capacity=used_capacity, visited_=visited_,
             lengths=lengths, cur_coord=cur_coord, cur_t=cur_t, release_t=release_t, i=self.i + 1
         )
 
     def all_finished(self):
-        return self.i.item() >= self.demand.size(-1) and self.visited.all()
+        return self.visited.all()
 
     def get_finished(self):
         return self.visited.sum(-1) == self.visited.size(-1)

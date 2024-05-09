@@ -9,12 +9,13 @@ import torch.nn.functional as F
 
 
 def load_problem(name):
-    from problems import TSP, CVRP, SDVRP, CVRPTW
+    from problems import TSP, CVRP, SDVRP, CVRPTW, DCVRPTW
     problem = {
         'tsp': TSP,
         'cvrp': CVRP,
         'sdvrp': SDVRP,
         'cvrptw': CVRPTW,
+        'dcvrptw': DCVRPTW, # TODO maybe change this 
     }.get(name, None)
     assert problem is not None, "Currently unsupported problem: {}!".format(name)
     return problem
@@ -107,7 +108,9 @@ def load_model(path, epoch=None):
         normalization=args['normalization'],
         tanh_clipping=args['tanh_clipping'],
         checkpoint_encoder=args.get('checkpoint_encoder', False),
-        shrink_size=args.get('shrink_size', None)
+        shrink_size=args.get('shrink_size', None),
+        pen_coef=args['pen_coef'],
+        attention=args['encoder_attn'],
     )
     # Overwrite model parameters by parameters to load
     load_data = torch_load_cpu(model_filename)
@@ -116,7 +119,6 @@ def load_model(path, epoch=None):
     model, *_ = _load_model_file(model_filename, model)
 
     model.eval()  # Put in eval mode
-
     return model, args
 
 

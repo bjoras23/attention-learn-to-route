@@ -13,8 +13,9 @@ from options import get_options
 from train import train_epoch, validate, get_inner_model
 from reinforce_baselines import NoBaseline, ExponentialBaseline, CriticBaseline, RolloutBaseline, WarmupBaseline
 from nets.attention_model import AttentionModel
+from nets.decision_model import DecisionModel
 from nets.pointer_network import PointerNetwork, CriticNetworkLSTM
-from utils import torch_load_cpu, load_problem
+from utils import torch_load_cpu, load_problem, load_model
 
 
 def run(opts):
@@ -36,22 +37,33 @@ def run(opts):
         json.dump(vars(opts), f, indent=True)
 
     # Set the device
+    
     opts.device = torch.device("cuda" if opts.use_cuda else "cpu")
+    torch.set_default_device(opts.device)
 
     # Figure out what's the problem
     problem = load_problem(opts.problem)
-
+    route_model = None
 
     # Initialize model
-    model_class = {
-        'attention': AttentionModel,
-        'pointer': PointerNetwork
-    }.get(opts.model, None)
+    if opts.problem == 'dcvrptw':
+        # route_model, _ = load_model(opts.route_model)
+        # route_model.to(opts.device)
+        # route_model.set_decode_type("greedy")
+        model_class =  DecisionModel
+    else:
+        model_class = {
+            'attention': AttentionModel,
+            'pointer': PointerNetwork
+        }.get(opts.model, None)
+    
     assert model_class is not None, "Unknown model: {}".format(model_class)
+
     model = model_class(
         opts.embedding_dim,
         opts.hidden_dim,
         problem,
+        route_model=route_model,
         n_encode_layers=opts.n_encode_layers,
         mask_inner=True,
         mask_logits=True,

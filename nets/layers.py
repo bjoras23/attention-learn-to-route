@@ -63,11 +63,10 @@ class GATMHAEfficient(nn.Module):
         # e_ijk = LeakyReLU((aᵏ)ᵀ[gᵢᵏ|| gⱼᵏ])
         e_ijk = self.activation(a_i + a_j)
 
-
         # Optionally apply mask to prevent attention TODO check mask
         if mask is not None:
-            mask = mask.view(1, batch_size, graph_size, graph_size).expand_as(e_ijk)
-            e_ijk[mask] = -np.inf
+            mask = mask.view(1, batch_size, 1, graph_size).expand_as(e_ijk)
+            e_ijk = e_ijk.masked_fill(mask, -torch.inf)
 
         # αᵢⱼᵏ = SoftMaxⱼ(eᵢⱼᵏ​)
         # (n_heads, batch_size, graph_size, graph_size)
@@ -173,4 +172,16 @@ class GATv2MHA(nn.Module):
         # hᵢ′​ = ∣∣​hᵢ′ᵏ
         # Concatenation of heads (batch_size, graph_size, embed_dim)
         return h_prime.reshape(batch_size, graph_size, self.n_heads*self.head_dim)
+
+
+class FeedForward(nn.Module):
+    def __init__(self, embed_dim, feed_forward_hidden) -> None:
+        super(FeedForward, self).__init__()
+        self.ff = nn.Sequential(nn.Linear(embed_dim, feed_forward_hidden),
+            nn.ReLU(),
+            nn.Linear(feed_forward_hidden, embed_dim)
+        ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, input, mask=None):
+        return self.ff(input)
     

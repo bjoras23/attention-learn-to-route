@@ -9,7 +9,7 @@ def get_options(args=None):
         description="Attention based model for solving the Travelling Salesman Problem with Reinforcement Learning")
 
     # Data
-    parser.add_argument('--problem', default='tsp', help="The problem to solve, default 'tsp'")
+    parser.add_argument('--problem', default='dcvrptw', help="The problem to solve, 'tsp', 'cvrp', 'cvrptw' or 'dcvrptw' (default)")
     parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=1024, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=256000, help='Number of instances per epoch during training')
@@ -73,6 +73,9 @@ def get_options(args=None):
     parser.add_argument('--resume', help='Resume from previous checkpoint file')
     parser.add_argument('--no_tensorboard', action='store_true', help='Disable logging TensorBoard files')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
+
+    parser.add_argument('--route_model',default=os.path.join("outputs","cvrptw_20","test_CVRPTW20_rollout_20240503T111617"),
+                         help='Model for routing')
 
     opts = parser.parse_args(args)
 
